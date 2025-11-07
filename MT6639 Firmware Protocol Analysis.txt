@@ -1,0 +1,166 @@
+
+=================================================================================
+MEDIATEK MT6639 BLUETOOTH FIRMWARE LOADING PROTOCOL ANALYSIS
+=================================================================================
+
+FIRMWARE FILE: BT_RAM_CODE_MT6639_2_1_hdr.bin
+Build Date: 20250606201235
+Platform: ALPS (Android Linux Platform System)
+File Size: 688,341 bytes (672 KB)
+
+**IMPORTANT**: This file contains firmware for MULTIPLE chips (MT6639 and MT7925)
+
+=================================================================================
+FILE STRUCTURE
+=================================================================================
+
+The firmware file contains:
+1. Header (0x00-0x5F): Metadata with build date and platform info
+2. Section Descriptors (0x60-0x27F): 9 sections, 64 bytes each
+3. Firmware Data (0x2A0+): Compressed/encrypted ARM code sections
+
+Section Descriptor Format (64 bytes):
+  +0x00: Type (2 bytes) - 0x0002
+  +0x02: Subtype (2 bytes) - 0x0001 (MT6639) or 0x0003 (MT7925)
+  +0x04: File Offset (4 bytes) - Where section data is in the file
+  +0x08: Size (4 bytes) - Size of this section
+  +0x0C: Load Address (4 bytes) - Target memory address in chip
+  +0x10: Dest Address (4 bytes) - Copy of size or related address
+  +0x14: Flags (12 bytes) - Additional metadata
+
+=================================================================================
+MT6639 SECTIONS (Type 0x00010002 - Subtype 0x0001)
+=================================================================================
+
+**ONLY 2 SECTIONS ARE LOADED FOR MT6639:**
+
+  Section 0:
+    File Offset: 0x000002a0
+    Size:        64,256 bytes (62.8 KB)
+    Load Addr:   0xE0900000
+    
+  Section 1:
+    File Offset: 0x0000fda0
+    Size:        53,824 bytes (52.6 KB)
+    Load Addr:   0x00900000
+
+TOTAL MT6639 FIRMWARE SIZE: 118,080 bytes (115.3 KB)
+
+=================================================================================
+MT7925 SECTIONS (Type 0x00030002 - Subtype 0x0003)
+=================================================================================
+
+**6 SECTIONS FOR MT7925 (NOT LOADED FOR MT6639):**
+
+  Section 2: 131,008 bytes @ 0xE0917800
+  Section 3: 177,472 bytes @ 0x0090FC00
+  Section 4: 61,760 bytes @ 0x00941000
+  Section 5: 55,104 bytes @ 0x00941000
+  Section 6: 32,704 bytes @ 0x00A00000
+  Section 7: 111,488 bytes @ 0x00A0A000
+
+=================================================================================
+HCI VENDOR COMMANDS (MediaTek Protocol)
+=================================================================================
+
+KEY OPCODES:
+  0xFC6F - Firmware Download Command (primary)
+  0xFC77 - Get Patch/ROM Version
+  0xFC70 - Get Version/Status
+  0xFCAA - Device Reset
+  0xFCC0 - Power On
+  0xFCC1 - Power Off
+  0xFCD0 - Read Register
+  0xFCD1 - Write Register
+  0xFD30 - Microsoft Vendor OpCode (from .inf file)
+
+=================================================================================
+CORRECT FIRMWARE DOWNLOAD SEQUENCE FOR MT6639
+=================================================================================
+
+1. RESET DEVICE
+   HCI Command: 0xFCAA (Device Reset)
+   Purpose: Reset the Bluetooth controller to known state
+
+2. POWER ON CHIP
+   HCI Command: 0xFCC0 (Power On)
+   Purpose: Power on the Bluetooth subsystem
+
+3. GET VERSION/STATUS
+   HCI Command: 0xFC77 (Get Patch/ROM Version)
+   Purpose: Query current firmware version and identify chip type
+
+4. DOWNLOAD FIRMWARE SECTION 0
+   HCI Command: 0xFC6F (Firmware Download)
+   Parameters:
+     - Load Address: 0xE0900000
+     - Size: 64,256 bytes
+     - Data from file offset: 0x2A0
+   
+5. DOWNLOAD FIRMWARE SECTION 1
+   HCI Command: 0xFC6F (Firmware Download)
+   Parameters:
+     - Load Address: 0x00900000
+     - Size: 53,824 bytes
+     - Data from file offset: 0xFDA0
+
+6. VERIFY FIRMWARE
+   HCI Command: 0xFC77 (Get Version)
+   Purpose: Verify firmware loaded correctly
+
+7. RESET TO ACTIVATE
+   HCI Command: 0xFCAA (Device Reset)
+   Purpose: Reset controller to start new firmware
+
+=================================================================================
+OPCODE SEQUENCE SUMMARY FOR MT6639
+=================================================================================
+
+The CORRECT opcode sequence for MT6639 firmware loading:
+
+1. 0xFCAA - Reset device
+2. 0xFCC0 - Power on Bluetooth subsystem
+3. 0xFC77 - Get firmware version (identifies as MT6639)
+4. 0xFC6F - Download section 0 (62.8 KB @ 0xE0900000)
+5. 0xFC6F - Download section 1 (52.6 KB @ 0x00900000)
+6. 0xFC77 - Verify firmware version
+7. 0xFCAA - Reset to activate new firmware
+
+**ONLY 2 SECTIONS (Type 0x00010002) - SECTIONS 0 AND 1**
+The other 6 sections (Type 0x00030002) are for MT7925, NOT MT6639!
+
+=================================================================================
+IMPORTANT NOTES
+=================================================================================
+
+1. MULTI-CHIP FIRMWARE FILE
+   Despite being named "BT_RAM_CODE_MT6639_2_1_hdr.bin", this file actually
+   contains firmware for BOTH MT6639 and MT7925 chips. The driver determines
+   which sections to load based on:
+   - Section type field (Type 1 = MT6639, Type 3 = MT7925)
+   - Chip ID queried via 0xFC77 command
+
+2. FIRMWARE DATA IS COMPRESSED/ENCRYPTED
+   The firmware sections contain compressed or encrypted data.
+   The chip's bootloader handles decompression after download.
+
+3. 0xFC6F COMMAND FORMAT
+   HCI Packet Type: 0x01 (Command)
+   Opcode: 0x6F 0xFC (little-endian: 0xFC6F)
+   Length: Variable
+   Parameters:
+     - Section metadata (load address, size)
+     - Firmware data (may be chunked for USB transfer limits)
+
+4. SECTION TYPE IDENTIFICATION
+   Type field = 0x0002 (always)
+   Subtype field determines chip:
+     - 0x0001 = MT6639 sections
+     - 0x0003 = MT7925 sections
+
+5. DRIVER BEHAVIOR
+   The Windows driver (mtkbtfilterx.sys) reads the firmware file,
+   queries the chip to identify it, then loads ONLY the appropriate
+   sections based on the chip type.
+
+=================================================================================
